@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# initialize
+if [ -n "$SLACK_WEBHOOK_URL" ]; then
+  _HOOK_URL=$SLACK_WEBHOOK_URL
+fi
+_DEBUG_MODE=0
+_PREVIEW_MESSAGE=0
+_MSG_JSON=""
+
+# functions
+function usage_exit {
+  echo "Usage: `basename $0` -dfhp --key value"
+  exit 1
+}
+
+function check_msg_json {
+  if [ ! -z "$_MSG_JSON" ]; then
+    echo "Invalid usage."
+    usage_exit
+  fi
+}
+
+# get options
+_OPTS=0
+while getopts :df:h:p OPT
+do
+  case $OPT in
+    d) _DEBUG_MODE=1
+       _OPTS=$((_OPTS+1))
+       ;;
+    f) _MSG_JSON=$(cat $OPTARG)
+       _OPTS=$((_OPTS+2))
+       ;;
+    h) _HOOK_URL=$OPTARG
+       _OPTS=$((_OPTS+2))
+       ;;
+    p) _PREVIEW_MESSAGE=1
+       _OPTS=$((_OPTS+1))
+       ;;
+  esac
+done
+shift $_OPTS
+
+# check if webhook is specified
+if [ -z "$_HOOK_URL" ]; then
+  echo "Slack webhook url is required."
+  usage_exit
+fi
+
+# get payload message
+if [ -p /dev/stdin ]; then
+  # from stdin
+  check_msg_json
+  _MSG_JSON=$(cat -)
+fi
+if [ $# -eq 1 ]; then
+  # from argument by json
+  check_msg_json
+  _MSG_JSON="$1"
+  shift 1
+elif [ $# -gt 1 ]; then
+  # from arguments
+  check_msg_json
+  _MSG_JSON=""
+  while true; do
+    if [[ $1 =~ ^--(.+)$ ]]; then
+      _JSON_KEY=${BASH_REMATCH[1]}
+      if [ $# -lt 2 ]; then
+        echo "No value for key '$_JSON_KEY'."
+        usage_exit
+      fi
+      _JSON_VAL="$2"
+      shift 2
+      _DELIMITER=","
+      [ $# -eq 0 ] && _DELIMITER=""
+      _MSG_JSON="$_MSG_JSON\"$_JSON_KEY\": \"${_JSON_VAL//\"/\\\"}\"$_DELIMITER"
+    else
+      echo "Illegul option '$1'."
+      usage_exit
+    fi
+    [ $# -eq 0 ] && break
+  done
+fi
+
+# check if message to send exists
+if [ -z "$_MSG_JSON" ]; then
+  # no message to send
+  echo "No message to send."
+  usage_exit
+fi
+
+# check if leaving argument exists
+if [ $# -gt 0 ]; then
+  echo "Invalid usage."
+  usage_exit
+fi
+
+# open browser to preview the message
+if [ $_PREVIEW_MESSAGE -ne 0 ]; then
+  open "https://api.slack.com/docs/messages/builder?msg={$_MSG_JSON}"
+  exit 0
+fi
+
+# show generated message (debug mode)
+if [ $_DEBUG_MODE -ne 0 ]; then
+  which jq > /dev/null
+  if [ $? -ne 0 ]; then
+    echo "{$_MSG_JSON}"
+  else
+    echo "{$_MSG_JSON}" | jq
+    if [ $? -ne 0 ]; then
+      echo "{$_MSG_JSON}"
+      exit 1
+    fi
+  fi
+  exit 0
+fi
+
+# send to slack webhook
+_RESPONSE=`curl -Ss -X POST $_HOOK_URL --data-urlencode "payload={$_MSG_JSON}"`
+_RETURN_CD=$?
+if [ $_RETURN_CD -ne 0 ]; then
+  exit 1
+fi
+if [ "$_RESPONSE" != "ok" ]; then
+  echo $_RESPONSE
+  exit 1
+fi
+exit 0
