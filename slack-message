@@ -118,7 +118,7 @@ if [ $_DEBUG_MODE -ne 0 ]; then
 fi
 
 # send to slack webhook
-_RESPONSE=`curl -Ss -X POST $_HOOK_URL --data-urlencode "payload={$_MSG_JSON}"`
+_RESPONSE=`curl -g -Ss -X POST $_HOOK_URL -d "payload={$_MSG_JSON}"`
 _RETURN_CD=$?
 if [ $_RETURN_CD -ne 0 ]; then
   exit 1
